@@ -28,46 +28,25 @@ copy_with_max_depth() {
     local dir_path=$(dirname "$rel_path")
     local filename=$(basename "$file")
     
-    # Разбиваем путь на части
     IFS='/' read -ra path_parts <<< "$dir_path"
     local parts_count=${#path_parts[@]}
     
-    # Если путь короче или равен max_depth, копируем как есть
     if [ $parts_count -le $max_depth ]; then
         local target_dir="$output_dir/$dir_path"
         mkdir -p "$target_dir"
         cp "$file" "$target_dir/$filename"
-        return
-    fi
-    
-    # Для путей длиннее max_depth, копируем во все возможные места
-    # Сначала копируем оригинальный путь до max_depth
-    local orig_target=""
-    for ((i=0; i<max_depth; i++)); do
-        if [ -z "$orig_target" ]; then
-            orig_target="${path_parts[i]}"
-        else
-            orig_target="$orig_target/${path_parts[i]}"
-        fi
-    done
-    mkdir -p "$output_dir/$orig_target"
-    cp "$file" "$output_dir/$orig_target/$filename"
-    
-    # Теперь копируем в каждую возможную комбинацию директорий глубиной max_depth
-    for ((start=1; start<=parts_count-max_depth; start++)); do
+    else
         local target=""
-        for ((i=start; i<start+max_depth && i<parts_count; i++)); do
+        for ((i=parts_count-max_depth; i<parts_count; i++)); do
             if [ -z "$target" ]; then
                 target="${path_parts[i]}"
             else
                 target="$target/${path_parts[i]}"
             fi
         done
-        if [ -n "$target" ]; then
-            mkdir -p "$output_dir/$target"
-            cp "$file" "$output_dir/$target/$filename"
-        fi
-    done
+        mkdir -p "$output_dir/$target"
+        cp "$file" "$output_dir/$target/$filename"
+    fi
 }
 
 if [ -n "$max_depth" ]; then
@@ -76,7 +55,6 @@ if [ -n "$max_depth" ]; then
         copy_with_max_depth "$file"
     done
 else
-    # Если max_depth не указан, копируем все файлы в корень с обработкой конфликтов
     find "$input_dir" -type f | while IFS= read -r file; do
         filename=$(basename "$file")
         counter=1
