@@ -23,7 +23,6 @@ fi
 mkdir -p "$output_dir"
 
 if [ -n "$max_depth" ]; then
-    # Копируем файлы до указанной глубины
     find "$input_dir" -mindepth 1 -maxdepth "$max_depth" -type f | while read -r file; do
         rel_path="${file#$input_dir/}"
         dir_path=$(dirname "$rel_path")
@@ -31,7 +30,6 @@ if [ -n "$max_depth" ]; then
         cp "$file" "$output_dir/$dir_path/"
     done
 
-    # Копируем файлы глубже указанной глубины
     find "$input_dir" -mindepth "$((max_depth + 1))" -type f | while read -r file; do
         rel_path="${file#$input_dir/}"
         dir_parts=($(echo "$rel_path" | tr '/' ' '))
