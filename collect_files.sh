@@ -22,56 +22,58 @@ fi
 
 mkdir -p "$output_dir"
 
-copy_file() {
-    local src="$1"
-    local dest="$2"
-    local filename=$(basename "$src")
-    local counter=1
-    local new_dest="$dest"
-
-    while [ -e "$new_dest" ]; do
-        local name="${filename%.*}"
-        local ext="${filename##*.}"
-        if [ "$name" = "$filename" ]; then
-            new_dest="${dest%/*}/${filename}${counter}"
-        else
-            new_dest="${dest%/*}/${name}${counter}.${ext}"
-        fi
-        ((counter++))
-    done
-    cp "$src" "$new_dest"
-}
-
 if [ -n "$max_depth" ]; then
-    while IFS= read -r -d '' file; do
+    # Для файлов в пределах max_depth - сохраняем структуру как есть
+    find "$input_dir" -mindepth 1 -maxdepth "$max_depth" -type f | while IFS= read -r file; do
         rel_path="${file#$input_dir/}"
-        depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
+        target_dir="$output_dir/$(dirname "$rel_path")"
+        mkdir -p "$target_dir"
+        cp "$file" "$target_dir/$(basename "$file")"
+    done
+
+    # Для файлов глубже max_depth - копируем только последние max_depth уровней директорий
+    find "$input_dir" -mindepth "$((max_depth + 1))" -type f | while IFS= read -r file; do
+        rel_path="${file#$input_dir/}"
+        IFS='/' read -ra path_parts <<< "$rel_path"
         
-        if [ "$depth" -lt "$max_depth" ]; then
-            dir_path=$(dirname "$rel_path")
-            target_dir="$output_dir/$dir_path"
-            mkdir -p "$target_dir"
-            copy_file "$file" "$target_dir/$(basename "$file")"
-        else
-            parts=()
-            while IFS='/' read -ra array; do
-                for part in "${array[@]}"; do
-                    if [ -n "$part" ]; then
-                        parts+=("$part")
-                    fi
-                done
-            done <<< "$rel_path"
-            
-            target_dir="$output_dir"
-            for ((i=0; i<max_depth && i<${#parts[@]}-1; i++)); do
-                target_dir="$target_dir/${parts[i]}"
-            done
-            mkdir -p "$target_dir"
-            copy_file "$file" "$target_dir/$(basename "$file")"
+        # Вычисляем, сколько компонентов пути нужно пропустить
+        skip_count=$((${#path_parts[@]} - max_depth - 1))
+        if [ $skip_count -lt 0 ]; then
+            skip_count=0
         fi
-    done < <(find "$input_dir" -type f -print0)
+        
+        # Собираем новый путь из последних max_depth компонентов
+        new_path=""
+        for ((i=skip_count; i<${#path_parts[@]}; i++)); do
+            if [ -z "$new_path" ]; then
+                new_path="${path_parts[i]}"
+            else
+                new_path="$new_path/${path_parts[i]}"
+            fi
+        done
+        
+        target_dir="$output_dir/$(dirname "$new_path")"
+        mkdir -p "$target_dir"
+        cp "$file" "$target_dir/$(basename "$file")"
+    done
 else
-    while IFS= read -r -d '' file; do
-        copy_file "$file" "$output_dir/$(basename "$file")"
-    done < <(find "$input_dir" -type f -print0)
+    # Если max_depth не указан, копируем все файлы в корень output_dir с обработкой конфликтов имен
+    find "$input_dir" -type f | while IFS= read -r file; do
+        filename=$(basename "$file")
+        counter=1
+        new_filename="$filename"
+        
+        while [ -e "$output_dir/$new_filename" ]; do
+            name="${filename%.*}"
+            ext="${filename##*.}"
+            if [ "$name" = "$filename" ]; then
+                new_filename="${filename}${counter}"
+            else
+                new_filename="${name}${counter}.${ext}"
+            fi
+            ((counter++))
+        done
+        
+        cp "$file" "$output_dir/$new_filename"
+    done
 fi
