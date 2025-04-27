@@ -22,23 +22,69 @@ fi
 
 mkdir -p "$output_dir"
 
-get_depth() {
-    local path="$1"
-    echo "$path" | awk -F/ '{print NF-1}'
-}
-
-process_file() {
+copy_with_max_depth() {
     local file="$1"
     local rel_path="${file#$input_dir/}"
-    local depth=$(get_depth "$rel_path")
+    local dir_path=$(dirname "$rel_path")
     local filename=$(basename "$file")
     
-    if [ -z "$max_depth" ]; then
-        local counter=1
-        local new_filename="$filename"
+    # Разбиваем путь на части
+    IFS='/' read -ra path_parts <<< "$dir_path"
+    local parts_count=${#path_parts[@]}
+    
+    # Если путь короче или равен max_depth, копируем как есть
+    if [ $parts_count -le $max_depth ]; then
+        local target_dir="$output_dir/$dir_path"
+        mkdir -p "$target_dir"
+        cp "$file" "$target_dir/$filename"
+        return
+    fi
+    
+    # Для путей длиннее max_depth, копируем во все возможные места
+    # Сначала копируем оригинальный путь до max_depth
+    local orig_target=""
+    for ((i=0; i<max_depth; i++)); do
+        if [ -z "$orig_target" ]; then
+            orig_target="${path_parts[i]}"
+        else
+            orig_target="$orig_target/${path_parts[i]}"
+        fi
+    done
+    mkdir -p "$output_dir/$orig_target"
+    cp "$file" "$output_dir/$orig_target/$filename"
+    
+    # Теперь копируем в каждую возможную комбинацию директорий глубиной max_depth
+    for ((start=1; start<=parts_count-max_depth; start++)); do
+        local target=""
+        for ((i=start; i<start+max_depth && i<parts_count; i++)); do
+            if [ -z "$target" ]; then
+                target="${path_parts[i]}"
+            else
+                target="$target/${path_parts[i]}"
+            fi
+        done
+        if [ -n "$target" ]; then
+            mkdir -p "$output_dir/$target"
+            cp "$file" "$output_dir/$target/$filename"
+        fi
+    done
+}
+
+if [ -n "$max_depth" ]; then
+    # Обработка с max_depth
+    find "$input_dir" -type f | while IFS= read -r file; do
+        copy_with_max_depth "$file"
+    done
+else
+    # Если max_depth не указан, копируем все файлы в корень с обработкой конфликтов
+    find "$input_dir" -type f | while IFS= read -r file; do
+        filename=$(basename "$file")
+        counter=1
+        new_filename="$filename"
+        
         while [ -e "$output_dir/$new_filename" ]; do
-            local name="${filename%.*}"
-            local ext="${filename##*.}"
+            name="${filename%.*}"
+            ext="${filename##*.}"
             if [ "$name" = "$filename" ]; then
                 new_filename="${filename}${counter}"
             else
@@ -46,28 +92,7 @@ process_file() {
             fi
             ((counter++))
         done
+        
         cp "$file" "$output_dir/$new_filename"
-    else
-        if [ "$depth" -le "$max_depth" ]; then
-            local target_dir="$output_dir/$(dirname "$rel_path")"
-            mkdir -p "$target_dir"
-            cp "$file" "$target_dir/$filename"
-        else
-            local parts=()
-            IFS='/' read -ra path_array <<< "$rel_path"
-            local start_idx=$((depth - max_depth))
-            
-            local target_dir="$output_dir"
-            for ((i=start_idx; i<${#path_array[@]}-1; i++)); do
-                target_dir="$target_dir/${path_array[i]}"
-            done
-            
-            mkdir -p "$target_dir"
-            cp "$file" "$target_dir/$filename"
-        fi
-    fi
-}
-
-export -f process_file get_depth
-export input_dir output_dir max_depth
-find "$input_dir" -type f -exec bash -c 'process_file "$0"' {} \;
+    done
+fi
