@@ -22,42 +22,56 @@ fi
 
 mkdir -p "$output_dir"
 
-process_file() {
-    local file="$1"
-    local rel_path="${file#$input_dir/}"
-    local depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
-    local filename=$(basename "$file")
-    
-    if [ -z "$max_depth" ]; then
-        local counter=1
-        local new_filename="$filename"
-        while [ -e "$output_dir/$new_filename" ]; do
-            local name="${filename%.*}"
-            local ext="${filename##*.}"
-            new_filename="${name}${counter}.${ext}"
-            ((counter++))
-        done
-        cp "$file" "$output_dir/$new_filename"
-    else
-        if [ "$depth" -lt "$max_depth" ]; then
-            local target_dir="$output_dir/$(dirname "$rel_path")"
-            mkdir -p "$target_dir"
-            cp "$file" "$target_dir/$filename"
+copy_file() {
+    local src="$1"
+    local dest="$2"
+    local filename=$(basename "$src")
+    local counter=1
+    local new_dest="$dest"
+
+    while [ -e "$new_dest" ]; do
+        local name="${filename%.*}"
+        local ext="${filename##*.}"
+        if [ "$name" = "$filename" ]; then
+            new_dest="${dest%/*}/${filename}${counter}"
         else
-            local target_dir="$output_dir"
-            local count=0
-            while IFS='/' read -r part; do
-                if [ "$count" -lt "$max_depth" ] && [ -n "$part" ]; then
-                    target_dir="$target_dir/$part"
-                    ((count++))
-                fi
-            done <<< "$(dirname "$rel_path")"
-            mkdir -p "$target_dir"
-            cp "$file" "$target_dir/$filename"
+            new_dest="${dest%/*}/${name}${counter}.${ext}"
         fi
-    fi
+        ((counter++))
+    done
+    cp "$src" "$new_dest"
 }
 
-export -f process_file
-export input_dir output_dir max_depth
-find "$input_dir" -type f -exec bash -c 'process_file "$0"' {} \;
+if [ -n "$max_depth" ]; then
+    while IFS= read -r -d '' file; do
+        rel_path="${file#$input_dir/}"
+        depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
+        
+        if [ "$depth" -lt "$max_depth" ]; then
+            dir_path=$(dirname "$rel_path")
+            target_dir="$output_dir/$dir_path"
+            mkdir -p "$target_dir"
+            copy_file "$file" "$target_dir/$(basename "$file")"
+        else
+            parts=()
+            while IFS='/' read -ra array; do
+                for part in "${array[@]}"; do
+                    if [ -n "$part" ]; then
+                        parts+=("$part")
+                    fi
+                done
+            done <<< "$rel_path"
+            
+            target_dir="$output_dir"
+            for ((i=0; i<max_depth && i<${#parts[@]}-1; i++)); do
+                target_dir="$target_dir/${parts[i]}"
+            done
+            mkdir -p "$target_dir"
+            copy_file "$file" "$target_dir/$(basename "$file")"
+        fi
+    done < <(find "$input_dir" -type f -print0)
+else
+    while IFS= read -r -d '' file; do
+        copy_file "$file" "$output_dir/$(basename "$file")"
+    done < <(find "$input_dir" -type f -print0)
+fi
