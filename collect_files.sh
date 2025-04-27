@@ -22,47 +22,42 @@ fi
 
 mkdir -p "$output_dir"
 
-if [ -n "$max_depth" ]; then
-    find "$input_dir" -mindepth 1 -maxdepth "$max_depth" -type f | while read -r file; do
-        rel_path="${file#$input_dir/}"
-        dir_path=$(dirname "$rel_path")
-        mkdir -p "$output_dir/$dir_path"
-        cp "$file" "$output_dir/$dir_path/"
-    done
-
-    find "$input_dir" -mindepth "$((max_depth + 1))" -type f | while read -r file; do
-        rel_path="${file#$input_dir/}"
-        dir_parts=($(echo "$rel_path" | tr '/' ' '))
-        max_depth_path=""
-        
-        for ((i=0; i<max_depth && i<${#dir_parts[@]}-1; i++)); do
-            if [ -z "$max_depth_path" ]; then
-                max_depth_path="${dir_parts[i]}"
-            else
-                max_depth_path="$max_depth_path/${dir_parts[i]}"
-            fi
-        done
-        
-        if [ -n "$max_depth_path" ]; then
-            mkdir -p "$output_dir/$max_depth_path"
-            cp "$file" "$output_dir/$max_depth_path/"
-        else
-            cp "$file" "$output_dir/"
-        fi
-    done
-else
-    find "$input_dir" -type f | while read -r file; do
-        filename=$(basename "$file")
-        counter=1
-        new_filename="$filename"
-        
+process_file() {
+    local file="$1"
+    local rel_path="${file#$input_dir/}"
+    local depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
+    local filename=$(basename "$file")
+    
+    if [ -z "$max_depth" ]; then
+        local counter=1
+        local new_filename="$filename"
         while [ -e "$output_dir/$new_filename" ]; do
-            name="${filename%.*}"
-            ext="${filename##*.}"
+            local name="${filename%.*}"
+            local ext="${filename##*.}"
             new_filename="${name}${counter}.${ext}"
             ((counter++))
         done
-        
         cp "$file" "$output_dir/$new_filename"
-    done
-fi
+    else
+        if [ "$depth" -lt "$max_depth" ]; then
+            local target_dir="$output_dir/$(dirname "$rel_path")"
+            mkdir -p "$target_dir"
+            cp "$file" "$target_dir/$filename"
+        else
+            local target_dir="$output_dir"
+            local count=0
+            while IFS='/' read -r part; do
+                if [ "$count" -lt "$max_depth" ] && [ -n "$part" ]; then
+                    target_dir="$target_dir/$part"
+                    ((count++))
+                fi
+            done <<< "$(dirname "$rel_path")"
+            mkdir -p "$target_dir"
+            cp "$file" "$target_dir/$filename"
+        fi
+    fi
+}
+
+export -f process_file
+export input_dir output_dir max_depth
+find "$input_dir" -type f -exec bash -c 'process_file "$0"' {} \;
