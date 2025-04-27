@@ -33,20 +33,18 @@ if [ -n "$max_depth" ]; then
     find "$input_dir" -mindepth "$((max_depth + 1))" -type f | while read -r file; do
         rel_path="${file#$input_dir/}"
         dir_parts=($(echo "$rel_path" | tr '/' ' '))
-        target_dir=""
+        max_depth_path=""
         
         for ((i=0; i<max_depth && i<${#dir_parts[@]}-1; i++)); do
-            if [ -z "$target_dir" ]; then
-                target_dir="${dir_parts[i]}"
+            if [ -z "$max_depth_path" ]; then
+                max_depth_path="${dir_parts[i]}"
             else
-                target_dir="$target_dir/${dir_parts[i]}"
+                max_depth_path="$max_depth_path/${dir_parts[i]}"
             fi
         done
         
-        if [ -n "$target_dir" ]; then
-            mkdir -p "$output_dir/$target_dir"
-            cp "$file" "$output_dir/$target_dir/"
-        fi
+        mkdir -p "$output_dir/$max_depth_path"
+        cp "$file" "$output_dir/$max_depth_path/"
     done
 else
     find "$input_dir" -type f | while read -r file; do
